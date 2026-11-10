@@ -1,5 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
-import { deleteEntry, loadAll, replaceAll, saveBudget, saveEntry, type Data } from './db';
+import {
+  deleteEntry,
+  deleteFavorite,
+  loadAll,
+  replaceAll,
+  saveBudget,
+  saveEntry,
+  saveFavorite,
+  type Data,
+} from './db';
 import {
   addDays,
   avgDeficit,
@@ -9,6 +18,7 @@ import {
   parseKey,
   totalsByDate,
   type Entry,
+  type Favorite,
   type Meal,
 } from './logic';
 
@@ -18,7 +28,11 @@ interface Draft {
   meal: Meal;
   kcal: string;
   note: string;
+  /** Also remember this note + kcal as a favorite. */
+  fav: boolean;
 }
+
+const sameName = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase();
 
 const cap = (s: string) => s[0].toUpperCase() + s.slice(1);
 
@@ -76,7 +90,21 @@ export function App() {
       kcal,
       ...(note ? { note } : {}),
     });
-    setData({ ...data, entries: [...data.entries.filter((e) => e.id !== saved.id), saved] });
+    let favorites = data.favorites;
+    if (draft.fav && note) {
+      // Same name again updates the existing favorite instead of adding a duplicate.
+      const existing = favorites.find((f) => sameName(f.name, note));
+      const fav = await saveFavorite({ ...(existing ? { id: existing.id } : {}), name: note, kcal });
+      favorites = [...favorites.filter((f) => f.id !== fav.id), fav];
+    }
+    setData({ ...data, entries: [...data.entries.filter((e) => e.id !== saved.id), saved], favorites });
+    setDraft(null);
+  };
+
+  const logFavorite = async (f: Favorite) => {
+    if (!draft) return;
+    const saved = await saveEntry({ date, meal: draft.meal, kcal: f.kcal, note: f.name });
+    setData({ ...data, entries: [...data.entries, saved] });
     setDraft(null);
   };
 
@@ -96,8 +124,10 @@ export function App() {
             date={date}
             today={today}
             setDate={setDate}
-            onAdd={(meal) => setDraft({ meal, kcal: '', note: '' })}
-            onEdit={(e) => setDraft({ id: e.id, meal: e.meal, kcal: String(e.kcal), note: e.note ?? '' })}
+            onAdd={(meal) => setDraft({ meal, kcal: '', note: '', fav: false })}
+            onEdit={(e) =>
+              setDraft({ id: e.id, meal: e.meal, kcal: String(e.kcal), note: e.note ?? '', fav: false })
+            }
           />
         )}
         {tab === 'history' && (
@@ -125,6 +155,8 @@ export function App() {
         <EntryDialog
           draft={draft}
           setDraft={setDraft}
+          favorites={data.favorites}
+          onPick={(f) => run(logFavorite(f))}
           onSave={() => run(submitDraft())}
           onDelete={() => run(removeDraft())}
         />
@@ -309,6 +341,32 @@ function SettingsView(props: {
         <p class="muted small">A new budget applies from today. Earlier days keep the budget they had.</p>
       </section>
 
+      {data.favorites.length > 0 && (
+        <section class="card">
+          <h2>Favorites</h2>
+          <div>
+            {sortFavorites(data.favorites).map((f) => (
+              <div class="favrow" key={f.id}>
+                <span>{f.name}</span>
+                <span class="muted">{f.kcal}</span>
+                <button
+                  aria-label={`Remove ${f.name}`}
+                  onClick={() =>
+                    props.run(
+                      deleteFavorite(f.id).then(() =>
+                        props.setData({ ...data, favorites: data.favorites.filter((x) => x.id !== f.id) }),
+                      ),
+                    )
+                  }
+                >
+                  ✕
+                </button>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
       <section class="card">
         <h2>Backup</h2>
         <div class="row">
@@ -354,22 +412,35 @@ function parseImport(text: string): Data | null {
       if (!DATE_RE.test(b.from) || !(Number(b.kcal) > 0)) throw new Error('bad budget');
       return { from: b.from, kcal: Math.round(Number(b.kcal)) };
     });
-    return { entries, budgets };
+    // Favorites are optional: exports made before they existed don't have them.
+    const favorites: Favorite[] = (Array.isArray(raw.favorites) ? raw.favorites : []).map((f: any, i: number) => {
+      if (typeof f.name !== 'string' || !f.name.trim() || !(Number(f.kcal) > 0)) throw new Error('bad favorite');
+      return { id: i + 1, name: f.name.trim(), kcal: Math.round(Number(f.kcal)) };
+    });
+    return { entries, budgets, favorites };
   } catch {
     return null;
   }
 }
 
+const sortFavorites = (list: Favorite[]) => [...list].sort((a, b) => a.name.localeCompare(b.name));
+
 function EntryDialog(props: {
   draft: Draft;
   setDraft: (d: Draft | null) => void;
+  favorites: Favorite[];
+  onPick: (f: Favorite) => void;
   onSave: () => void;
   onDelete: () => void;
 }) {
-  const { draft, setDraft } = props;
+  const { draft, setDraft, favorites } = props;
   const kcalInput = useRef<HTMLInputElement>(null);
   useEffect(() => kcalInput.current?.focus(), []);
-  const valid = Math.round(Number(draft.kcal)) > 0;
+  const kcal = Math.round(Number(draft.kcal));
+  const valid = kcal > 0;
+  // Offer to remember the entry only when it has a note and isn't a favorite already.
+  const canFav =
+    valid && draft.note.trim() !== '' && !favorites.some((f) => sameName(f.name, draft.note) && f.kcal === kcal);
 
   return (
     <div class="overlay" onClick={(ev) => ev.target === ev.currentTarget && setDraft(null)}>
@@ -393,6 +464,15 @@ function EntryDialog(props: {
             </button>
           ))}
         </div>
+        {draft.id === undefined && favorites.length > 0 && (
+          <div class="favs" aria-label="Favorites">
+            {sortFavorites(favorites).map((f) => (
+              <button type="button" key={f.id} onClick={() => props.onPick(f)}>
+                {f.name} <span class="muted">{f.kcal}</span>
+              </button>
+            ))}
+          </div>
+        )}
         <input
           ref={kcalInput}
           type="number"
@@ -411,6 +491,16 @@ function EntryDialog(props: {
           value={draft.note}
           onInput={(ev) => setDraft({ ...draft, note: ev.currentTarget.value })}
         />
+        {canFav && (
+          <label class="check">
+            <input
+              type="checkbox"
+              checked={draft.fav}
+              onChange={(ev) => setDraft({ ...draft, fav: ev.currentTarget.checked })}
+            />
+            Save as favorite
+          </label>
+        )}
         <div class="row">
           {draft.id !== undefined && (
             <button type="button" class="danger" onClick={props.onDelete}>

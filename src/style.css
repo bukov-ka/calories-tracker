@@ -269,6 +269,51 @@ nav button.active {
   flex-direction: column;
   gap: 12px;
 }
+.favs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  max-height: 132px;
+  overflow-y: auto;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+.favs button {
+  padding: 8px 12px;
+  font-size: 14px;
+}
+.check {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 2px;
+}
+.check input {
+  width: 20px;
+  height: 20px;
+  accent-color: var(--accent);
+}
+.favrow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border-top: 1px solid var(--line);
+  padding: 4px 0;
+}
+.favrow:first-child {
+  border-top: none;
+}
+.favrow span:first-child {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.favrow button {
+  border: none;
+  color: var(--muted);
+  padding: 10px 12px;
+}
 .chips {
   display: flex;
   flex-wrap: wrap;

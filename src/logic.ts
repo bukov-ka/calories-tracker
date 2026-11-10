@@ -16,6 +16,13 @@ export interface Budget {
   kcal: number;
 }
 
+/** A frequently eaten item that can be logged with one tap. */
+export interface Favorite {
+  id: number;
+  name: string;
+  kcal: number;
+}
+
 export const DEFAULT_BUDGET = 2094;
 /** Start date of the seed budget: earlier than any real day. */
 export const EPOCH = '0000-01-01';
