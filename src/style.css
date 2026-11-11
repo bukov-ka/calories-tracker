@@ -262,12 +262,18 @@ nav button.active {
 .sheet {
   width: 100%;
   max-width: 520px;
+  /* When the keyboard leaves little room, scroll inside the sheet instead of clipping it. */
+  max-height: 100%;
+  overflow-y: auto;
   background: var(--card);
   border-radius: 18px 18px 0 0;
   padding: 18px 14px calc(18px + env(safe-area-inset-bottom));
   display: flex;
   flex-direction: column;
   gap: 12px;
+}
+.sheet > * {
+  flex-shrink: 0;
 }
 .favs {
   display: flex;
